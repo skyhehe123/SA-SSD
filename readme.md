@@ -1,4 +1,4 @@
-## SA-SSD: Structure Aware Single-stage 3D Object Detection from Point Cloud
+## SA-SSD: Structure Aware Single-stage 3D Object Detection from Point Cloud (CVPR2020)
 Currently 1st place in KITTI BEV and 3rd in KITTI 3D. The detector can run at 25 FPS. 
 
 **Authors**: [Chenhang He](https://github.com/skyhehe123), [Zeng Hui](https://github.com/HuiZeng), Jianqiang Huang, Xiansheng Hua, [Lei Zhang](https://www4.comp.polyu.edu.hk/~cslzhang/).
@@ -85,6 +85,16 @@ To evaluate the model, run the following command:
 ```
 cd mmdet/tools
 python3 test.py ../configs/car_cfg.py ../saved_model_vehicle/epoch_50.pth
+```
+## Citation
+If you find this work useful in your research, please consider cite:
+```
+@inproceedings{he2020sassd,
+title={Structure Aware Single-stage 3D Object Detection from Point Cloud},
+author={He, Chenhang and Zeng, Hui and Huang, Jianqiang and Hua, Xian-Sheng and Zhang, Lei},
+  booktitle={Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition},
+  year={2020}
+}
 ```
 
 ## Acknowledgement
