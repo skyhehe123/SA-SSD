@@ -1,5 +1,5 @@
 model = dict(
-    type='TwoStageDetector',
+    type='SingleStageDetector',
     backbone=dict(
         type='SimpleVoxel',
         num_input_features=4,
@@ -13,7 +13,7 @@ model = dict(
         num_input_features=4,
         num_hidden_features=64 * 5,
     ),
-    rpn_head=dict(
+    bbox_head=dict(
         type='SSDRotateHead',
         num_class=1,
         num_output_filters=256,
@@ -23,21 +23,13 @@ model = dict(
         use_direction_classifier=True,
         box_code_size=7,
     ),
-
-    bbox_roi_extractor=dict(
-        type='SingleRoIExtractor',
-        roi_layer=dict(
-            type='PSRoIAlignRotated',
-                out_size=(7, 4), x_offset=0., y_offset=40., sample_num=0),
-        out_channels=256,
-        featmap_strides=[.4]),
-
-    bbox_head=dict(
-        type='PSConvBBoxHead',
+    extra_head=dict(
+        type='PSWarpHead',
+        grid_offsets = (0., 40.),
+        featmap_stride=.4,
         in_channels=256,
-        hidden_channels=256,
         num_class=1,
-        num_parts=28
+        num_parts=28,
     )
 )
 
@@ -62,25 +54,15 @@ train_cfg = dict(
         pos_weight=-1,
         smoothl1_beta=1 / 9.0,
         debug=False),
-
-    rcnn=
-        dict(
-            assigner=dict(
-                pos_iou_thr=0.7,
-                neg_iou_thr=0.7,
-                min_pos_iou=0.7,
-                ignore_iof_thr=-1,
-                similarity_fn ='RotateIou3dSimilarity'
-            ),
-            # sampler=dict(
-            #     num=300,
-            #     pos_fraction=0.25,
-            #     neg_pos_ub=-1,
-            #     add_gt_as_proposals=True,
-            #     pos_balance_sampling=False,
-            #     neg_balance_thr=0),
-            pos_weight=-1,
-            debug=False),
+    extra=dict(
+        assigner=dict(
+            pos_iou_thr=0.7,
+            neg_iou_thr=0.7,
+            min_pos_iou=0.7,
+            ignore_iof_thr=-1,
+            similarity_fn ='RotateIou3dSimilarity'
+        )
+    )
 )
 
 test_cfg = dict(
@@ -91,7 +73,7 @@ test_cfg = dict(
         nms_thr=0.7,
         min_bbox_size=0
     ),
-    rcnn=dict(
+    extra=dict(
         score_thr=0.3, nms=dict(type='nms', iou_thr=0.1), max_per_img=100)
 )
 # dataset settings

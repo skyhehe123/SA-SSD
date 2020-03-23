@@ -6,14 +6,11 @@ from mmdet.ops.iou3d.iou3d_utils import boxes3d_to_bev_torch
 import torch
 import torch.nn.functional as F
 from mmdet.core.loss.losses import weighted_smoothl1, weighted_sigmoid_focal_loss, weighted_cross_entropy
-from mmdet.core import kitti_bbox2results, delta2rbbox3d
-from mmdet.datasets.kitti_utils import project_rect_to_image, project_velo_to_rect
 from mmdet.core.utils.misc import multi_apply
-from mmdet.core.bbox3d.geometry import center_to_corner_box3d, limit_period
 from mmdet.core.bbox3d.target_ops import create_target_torch
 import mmdet.core.bbox3d.box_coders as boxCoders
 from mmdet.core.post_processing.bbox_nms import rotate_nms_torch
-
+from functools import partial
 
 def second_box_encode(boxes, anchors, encode_angle_to_vector=False, smooth_dim=False):
     """box encode for VoxelNet in lidar
@@ -92,49 +89,6 @@ def second_box_decode(box_encodings, anchors, encode_angle_to_vector=False, smoo
         rg = rt + ra
     zg = zg - hg / 2
     return torch.cat([xg, yg, zg, wg, lg, hg, rg], dim=-1)
-
-def gen_box_kpts(box):
-
-    xg, yg, _, wg, lg, _, rg = torch.split(box, 1, dim=-1)
-
-    cosTheta = torch.cos(rg)
-    sinTheta = torch.sin(rg)
-
-    kpts=list()
-    for xx in (-.5*wg, .5*wg):
-        for yy in (-.5*lg, .5*lg):
-            x=(xx * cosTheta + yy * sinTheta + xg)
-            y=(yy * cosTheta - xx * sinTheta + yg)
-            kpts.append(torch.cat([x,y],-1))
-    kpts.append(torch.cat([xg, yg],-1))
-
-    return torch.stack(kpts, -2)
-
-def interp_from_kpts(x, kpts):
-    c, h, w = x.shape
-
-    xmin = torch.clamp(torch.floor(kpts[..., 0]), 0, w-1)
-    ymin = torch.clamp(torch.floor(kpts[..., 1]), 0, h-1)
-    xmax = torch.clamp(torch.ceil(kpts[..., 0]), 0, w-1)
-    ymax = torch.clamp(torch.ceil(kpts[..., 1]), 0, h-1)
-    left_top = (ymin * w + xmin).long()
-    right_bottom = (ymax * w + xmax).long()
-    left_bottom = (ymax * w + xmin).long()
-    right_top = (ymin * w + xmax).long()
-    x = x.view(c, -1)
-    left_top_feature = x[:, left_top]
-    right_bottom_feature = x[:, right_bottom]
-    left_bottom_feature = x[:, left_bottom]
-    right_top_feature = x[:, right_top]
-    right_bottom_weight = torch.abs((kpts[..., 0] - xmin) * (kpts[..., 1] - ymin)).unsqueeze_(0)
-    left_top_weight = torch.abs((xmax - kpts[..., 0]) * (ymax - kpts[..., 1])).unsqueeze_(0)
-    right_top_weight = torch.abs((kpts[..., 0] - xmin) * (ymax - kpts[..., 1])).unsqueeze_(0)
-    left_bottom_weight = torch.abs((xmax - kpts[..., 0]) * (kpts[..., 1] - ymin)).unsqueeze_(0)
-    interp_feature = right_bottom_feature * right_bottom_weight + \
-                     left_top_feature * left_top_weight + \
-                     right_top_feature * right_top_weight + \
-                     left_bottom_feature * left_bottom_weight
-    return interp_feature
 
 class SSDRotateHead(nn.Module):
 
@@ -248,7 +202,6 @@ class SSDRotateHead(nn.Module):
         if use_sigmoid_cls:
             one_hot_targets = one_hot_targets[..., 1:]
         if encode_rad_error_by_sin:
-            # sin(a - b) = sinacosb-cosasinb
             box_preds, reg_targets = self.add_sin_difference(box_preds, reg_targets)
 
         loc_losses = weighted_smoothl1(box_preds, reg_targets, beta=1 / 9., \
@@ -278,9 +231,7 @@ class SSDRotateHead(nn.Module):
         labels, targets, ious = multi_apply(create_target_torch,
                                             anchors, gt_bboxes,
                                             anchors_mask, gt_labels,
-                                            #similarity_fn=getattr(regionSimilarity, cfg.assigner.similarity_fn)(),
                                             similarity_fn=getattr(iou3d_utils, cfg.assigner.similarity_fn)(),
-                                            #box_encoding_fn=self._box_coder.encode,
                                             box_encoding_fn = second_box_encode,
                                             matched_threshold=cfg.assigner.pos_iou_thr,
                                             unmatched_threshold=cfg.assigner.neg_iou_thr,
@@ -330,7 +281,6 @@ class SSDRotateHead(nn.Module):
 
         return dict(rpn_loc_loss=loc_loss_reduced, rpn_cls_loss=cls_loss_reduced, rpn_dir_loss=dir_loss_reduced)
 
-
     def get_guided_anchors(self, box_preds, cls_preds, dir_cls_preds, anchors, anchors_mask, gt_bboxes, thr=.1):
         batch_size = box_preds.shape[0]
 
@@ -379,22 +329,81 @@ class SSDRotateHead(nn.Module):
             new_boxes.append(box_preds)
         return new_boxes
 
+def gen_sample_grid(box, window_size=(4, 7), grid_offsets=(0, 0), spatial_scale=1.):
+    N = box.shape[0]
+    win = window_size[0] * window_size[1]
+    xg, yg, wg, lg, rg = torch.split(box, 1, dim=-1)
 
-class PSConvBBoxHead(SSDRotateHead):
-    def __init__(self, in_channels, hidden_channels=256, num_class=1, num_parts=49):
-        super(PSConvBBoxHead, self).__init__()
+    xg = xg.unsqueeze_(-1).expand(N, *window_size)
+    yg = yg.unsqueeze_(-1).expand(N, *window_size)
+    rg = rg.unsqueeze_(-1).expand(N, *window_size)
+
+    cosTheta = torch.cos(rg)
+    sinTheta = torch.sin(rg)
+
+    xx = torch.linspace(-.5, .5, window_size[0]).type_as(box).view(1, -1) * wg
+    yy = torch.linspace(-.5, .5, window_size[1]).type_as(box).view(1, -1) * lg
+
+    xx = xx.unsqueeze_(-1).expand(N, *window_size)
+    yy = yy.unsqueeze_(1).expand(N, *window_size)
+
+    x=(xx * cosTheta + yy * sinTheta + xg)
+    y=(yy * cosTheta - xx * sinTheta + yg)
+
+    x = (x.permute(1, 2, 0).contiguous() + grid_offsets[0]) * spatial_scale
+    y = (y.permute(1, 2, 0).contiguous() + grid_offsets[1]) * spatial_scale
+
+    return x.view(win, -1), y.view(win, -1)
+
+def bilinear_interpolate_torch_gridsample(image, samples_x, samples_y):
+    C, H, W = image.shape
+    image = image.unsqueeze(1)  # change to:  C x 1 x H x W
+
+    samples_x = samples_x.unsqueeze(2)
+    samples_x = samples_x.unsqueeze(3)
+    samples_y = samples_y.unsqueeze(2)
+    samples_y = samples_y.unsqueeze(3)
+
+    samples = torch.cat([samples_x, samples_y], 3)
+    samples[:, :, :, 0] = (samples[:, :, :, 0] / (W - 1))  # normalize to between  0 and 1
+    samples[:, :, :, 1] = (samples[:, :, :, 1] / (H - 1))  # normalize to between  0 and 1
+    samples = samples * 2 - 1  # normalize to between -1 and 1
+
+    return torch.nn.functional.grid_sample(image, samples)
+
+class PSWarpHead(nn.Module):
+    def __init__(self, grid_offsets, featmap_stride, in_channels, num_class=1, num_parts=49):
+        super(PSWarpHead, self).__init__()
         self._num_class = num_class
         out_channels = num_class * num_parts
 
+        self.gen_grid_fn = partial(gen_sample_grid, grid_offsets=grid_offsets, spatial_scale=1 / featmap_stride)
+
         self.convs = nn.Sequential(
-            nn.Conv2d(in_channels, hidden_channels, 3, 1, padding=1, bias=False),
-            nn.BatchNorm2d(hidden_channels, eps=1e-3, momentum=0.01),
+            nn.Conv2d(in_channels, out_channels, 3, 1, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels, eps=1e-3, momentum=0.01),
             nn.ReLU(inplace=True),
-            nn.Conv2d(hidden_channels, out_channels, 1, 1, padding=0, bias=False)
+            nn.Conv2d(out_channels, out_channels, 1, 1, padding=0, bias=False)
         )
 
-    def forward(self, x):
-        return self.convs(x)
+    def forward(self, x, guided_anchors, is_test=False):
+        x = self.convs(x)
+        bbox_scores = list()
+        for i, ga in enumerate(guided_anchors):
+            if len(ga) == 0:
+                bbox_scores.append(torch.empty(0).type_as(x))
+                continue
+            (xs, ys) = self.gen_grid_fn(ga[:, [0, 1, 3, 4, 6]])
+            im = x[i]
+            out = bilinear_interpolate_torch_gridsample(im, xs, ys)
+            score = torch.mean(out, 0).view(-1)
+            bbox_scores.append(score)
+
+        if is_test:
+            return bbox_scores, guided_anchors
+        else:
+            return torch.cat(bbox_scores, 0)
+
 
     def loss(self, cls_preds, gt_bboxes, gt_labels, anchors, cfg):
 
@@ -406,10 +415,12 @@ class PSConvBBoxHead(SSDRotateHead):
                                             similarity_fn=getattr(iou3d_utils, cfg.assigner.similarity_fn)(),
                                             box_encoding_fn = second_box_encode,
                                             matched_threshold=cfg.assigner.pos_iou_thr,
-                                            unmatched_threshold=cfg.assigner.neg_iou_thr,
-                                            box_code_size=self._box_code_size)
+                                            unmatched_threshold=cfg.assigner.neg_iou_thr)
 
         labels = torch.cat(labels,).unsqueeze_(1)
+
+        # soft_label = torch.clamp(2 * ious - 0.5, 0, 1)
+        # labels = soft_label * labels.float()
 
         cared = labels >= 0
         positives = labels > 0
@@ -430,39 +441,29 @@ class PSConvBBoxHead(SSDRotateHead):
 
         return dict(loss_cls=cls_loss_reduced,)
 
-    def get_det_bboxes(self, rois, cls_scores, bbox_preds, img_metas, cfg):
+    def get_rescore_bboxes(self, guided_anchors, cls_scores, img_metas, cfg):
         det_bboxes = list()
         det_scores = list()
 
         for i in range(len(img_metas)):
-            inds = torch.nonzero(rois[:, 0] == i).squeeze()
-            roi = rois[inds, 1:]
-            scores = cls_scores[inds, :]
+            bbox_pred = guided_anchors[i]
+            scores = cls_scores[i]
 
-            if bbox_preds is not None:
-                bbox_pred = bbox_preds[inds, :]
-            else:
-                bbox_pred = roi
+            if scores.numel == 0:
+                det_bboxes.append(None)
+                det_scores.append(None)
 
             bbox_pred = bbox_pred.view(-1, 7)
-            roi = roi.view(-1, 7)
-
             scores = torch.sigmoid(scores).view(-1)
-
             select = scores > cfg.score_thr
 
             bbox_pred = bbox_pred[select, :]
-            roi = roi[select, :]
             scores = scores[select]
 
             if scores.numel() == 0:
                 det_bboxes.append(bbox_pred)
                 det_scores.append(scores)
                 continue
-
-            if bbox_preds is not None:
-                bbox_pred = delta2rbbox3d(roi, bbox_pred, self.target_means,
-                                          self.target_stds)
 
             boxes_for_nms = boxes3d_to_bev_torch(bbox_pred)
             keep = rotate_nms_torch(boxes_for_nms, scores, iou_threshold=cfg.nms.iou_thr)
