@@ -1,4 +1,4 @@
-## SA-SSD: Structure Aware Single-stage 3D Object Detection from Point Cloud (CVPR2020)
+## SA-SSD: Structure Aware Single-stage 3D Object Detection from Point Cloud (CVPR 2020)
 Currently 1st place in KITTI BEV and 3rd in KITTI 3D. The detector can run at 25 FPS. 
 
 **Authors**: [Chenhang He](https://github.com/skyhehe123), [Zeng Hui](https://github.com/HuiZeng), Jianqiang Huang, Xiansheng Hua, [Lei Zhang](https://www4.comp.polyu.edu.hk/~cslzhang/).
