@@ -1,7 +1,10 @@
 ## SA-SSD: Structure Aware Single-stage 3D Object Detection from Point Cloud
 Currently 1st place in KITTI BEV and 3rd in KITTI 3D. The detector can run at 25 FPS. 
+
 **Authors**: [Chenhang He](https://github.com/skyhehe123), [Zeng Hui](https://github.com/HuiZeng), Jianqiang Huang, Xiansheng Hua, [Lei Zhang](https://www4.comp.polyu.edu.hk/~cslzhang/).
-[![SA-SSD](https://img.youtube.com/vi/YOUTUBE_VIDEO_ID_HERE/0.jpg)](https://www.youtube.com/watch?v=jrAb3ts4tAs)
+
+[![Demo Video](https://github.com/skyhehe123/SA-SSD/blob/master/doc/hqdefault.jpg)](https://www.youtube.com/embed/jrAb3ts4tAs)
+
 # Introduction
 ![model](https://github.com/skyhehe123/SA-SSD/blob/master/doc/model.png)
 Current single-stage detectors are efficient by progressively downscaling the 3D point clouds in a fully convolutional manner. However, the downscaled features inevitably lose spatial information and cannot make full use of the structure information of 3D point cloud, degrading their localization precision. In this work, we propose to improve the localization precision of single-stage detectors by explicitly leveraging the structure information of 3D point cloud. Specifically, we design an auxiliary network which converts the convolutional features in the backbone network back to point-level representations. The auxiliary network is jointly optimized, by two point-level supervisions, to guide the convolutional features in the backbone network to be aware of the object structure. The auxiliary network can be detached after training and therefore introduces no extra computation in the inference stage. Besides, considering that single-stage detectors suffer from the discordance between the predicted bounding boxes and corresponding classification confidences, we develop an efficient part-sensitive warping operation to align the confidences to the predicted bounding boxes.
