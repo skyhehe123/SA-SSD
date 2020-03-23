@@ -61,7 +61,7 @@ $ python3 tools/create_data.py
 ```
 
 # Pretrained Model
-You can download the pretrained model [here](https://drive.google.com/file/d/14F6almjD5kUsNlBfFUjh6g2VVnzCgDD5/view?usp=sharing), 
+You can download the pretrained model [here](https://drive.google.com/file/d/1WJnJDMOeNKszdZH3P077wKXcoty7XOUb/view?usp=sharing), 
 which is trained on the train split (3712 samples) and evaluated on the val split (3769 samples) and test split (7518 samples). 
 The performance (using 40 recall poisitions) on validation set is as follows:
 ```
