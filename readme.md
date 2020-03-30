@@ -16,7 +16,7 @@ Current single-stage detectors are efficient by progressively downscaling the 3D
 - `opencv`
 - `shapely`
 - `mayavi`
-- `spconv`
+- `spconv` (1.0)
 
 # Installation
 1. Clone this repository.
