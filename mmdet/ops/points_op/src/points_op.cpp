@@ -143,6 +143,45 @@ int pts_in_boxes3d_cpu(at::Tensor pts, at::Tensor boxes3d, at::Tensor pts_flag, 
     return 1;
 }
 
+template <typename DType>
+py::array_t<bool> points_in_bbox3d_np(py::array_t<DType> points,
+                        py::array_t<DType> boxes3d)
+{
+
+    //const DType* points_ptr = static_cast<DType*>(points.request().ptr);
+    //const DType* boxes3d_ptr = static_cast<DType*>(boxes3d.request().ptr);
+    //const DType* boxes3d_ptr = boxes3d.data();
+
+    auto points_ptr = points.template mutable_unchecked<2>();
+    auto boxes3d_ptr = boxes3d.template mutable_unchecked<2>();
+
+    int N = points.shape(0);
+    int M = boxes3d.shape(0);
+
+    auto keep = py::array_t<bool>({N,M});
+
+    //int * keep_ptr = keep.mutable_data();
+    //int * keep_ptr = static_cast<int*>(keep.request().ptr);
+    auto keep_ptr = keep.mutable_unchecked<2>();
+
+    int i, j, cur_in_flag;
+    for (i = 0; i < M; i++){
+        for (j = 0; j < N; j++){
+            cur_in_flag = pt_in_box3d_cpu(
+                points_ptr(j, 0), points_ptr(j, 1), points_ptr(j, 2),
+                boxes3d_ptr(i, 0), boxes3d_ptr(i, 1), boxes3d_ptr(i, 2),
+                boxes3d_ptr(i, 3), boxes3d_ptr(i, 4), boxes3d_ptr(i, 5),
+                boxes3d_ptr(i, 6)
+            );
+
+            keep_ptr(j, i) = (bool) cur_in_flag;
+        }
+    }
+
+    return keep;
+}
+
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.doc() = "pybind11 example plugin";      // module doc string
   m.def("points_to_bev_kernel",                              // function name
@@ -154,4 +193,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "function of filtering points" //function doc string
        );
   m.def("pts_in_boxes3d", &pts_in_boxes3d_cpu, "points in boxes3d (CPU)");
+  m.def("points_in_bbox3d_np", &points_in_bbox3d_np<float>, "points in boxes3d using numpy (CPU)");
 }
