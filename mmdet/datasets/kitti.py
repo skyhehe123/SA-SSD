@@ -160,7 +160,9 @@ class KittiLiDAR(Dataset):
             assert len(gt_types) == len(gt_bboxes)
 
             # to avoid overlapping point (option)
-            masks = points_in_rbbox(points, sampled_gt_boxes)
+            # masks = points_in_rbbox(points, sampled_gt_boxes)
+            masks = points_op_cpu.points_in_bbox3d_np(points[:,:3], sampled_gt_boxes)
+
             points = points[np.logical_not(masks.any(-1))]
 
             # paste sampled points to the scene
