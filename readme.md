@@ -1,10 +1,10 @@
 ## SA-SSD: Structure Aware Single-stage 3D Object Detection from Point Cloud (CVPR 2020) [\[paper\]](https://www4.comp.polyu.edu.hk/~cslzhang/paper/SA-SSD.pdf)
 Currently 1st place in KITTI BEV and 3rd in KITTI 3D. The detector can run at 25 FPS. 
 
+**Authors**: [Chenhang He](https://github.com/skyhehe123), [Zeng Hui](https://github.com/HuiZeng), Jianqiang Huang, Xiansheng Hua, [Lei Zhang](https://www4.comp.polyu.edu.hk/~cslzhang/).
+
 ## Updates
 2020-04-13: Add one_cycle (with Adam) training as default scheduler.
-
-**Authors**: [Chenhang He](https://github.com/skyhehe123), [Zeng Hui](https://github.com/HuiZeng), Jianqiang Huang, Xiansheng Hua, [Lei Zhang](https://www4.comp.polyu.edu.hk/~cslzhang/).
 
 ## Demo
 [![Demo](https://github.com/skyhehe123/SA-SSD/blob/master/doc/hqdefault.jpg)](https://www.youtube.com/watch?v=jrAb3ts4tAs)
