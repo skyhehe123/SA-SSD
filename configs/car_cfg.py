@@ -78,7 +78,7 @@ test_cfg = dict(
 )
 # dataset settings
 dataset_type = 'KittiLiDAR'
-data_root = '/home/billyhe/hdd/KITTI/'
+data_root = '/home/billyhe/data/KITTI/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 data = dict(
@@ -161,21 +161,21 @@ data = dict(
 )
 # optimizer
 optimizer = dict(
-    type='sgd', lr=0.01, momentum=0.9, weight_decay=0.001,
+    type='adam_onecycle', lr=0.003, weight_decay=0.01,
     grad_clip=dict(max_norm=10, norm_type=2)
 )
 # learning policy
 lr_config = dict(
-    policy='cosine',
-    warmup='linear',
-    warmup_iters=500,
-    warmup_ratio=1.0 / 3,
+    policy='onecycle',
+    moms = [0.95, 0.85],
+    div_factor = 10,
+    pct_start = 0.4
 )
 
-checkpoint_config = dict(interval=1)
-log_config = dict(interval=20)
+checkpoint_config = dict(interval=5)
+log_config = dict(interval=50)
 
-total_epochs = 50
+total_epochs = 80
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
 work_dir = '../saved_model_vehicle'
