@@ -37,16 +37,19 @@ def unmap(data, count, inds, fill=0):
     return ret
 
 class TimeCatcher(object):
-    def __init__(self, show=True):
+    def __init__(self, show=True, cuda=True):
         self.show=show
+        self.cuda = cuda
 
     def __enter__(self):
-        torch.cuda.synchronize()
+        if self.cuda:
+            torch.cuda.synchronize()
         self.start = time.time()
         return self
 
     def __exit__(self, type, value, traceback):
-        torch.cuda.synchronize()
+        if self.cuda:
+            torch.cuda.synchronize()
         self.end = time.time()
         ms = (self.end - self.start) * 1000
         if self.show:

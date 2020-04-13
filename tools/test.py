@@ -11,7 +11,7 @@ import tools.kitti_common as kitti
 import numpy as np
 import torch.utils.data
 import os
-
+from tools.train_utils import load_params_from_file
 from mmdet.datasets import utils
 
 def single_test(model, data_loader, saveto=None, class_names=['Car']):
@@ -22,7 +22,7 @@ def single_test(model, data_loader, saveto=None, class_names=['Car']):
     model.eval()
     annos = []
     prog_bar = mmcv.ProgressBar(len(data_loader.dataset))
-    #class_names = get_classes('kitti')
+
     for i, data in enumerate(data_loader):
         with torch.no_grad():
             results = model(return_loss=False, **data)
@@ -47,14 +47,14 @@ def single_test(model, data_loader, saveto=None, class_names=['Car']):
                     anno["name"].append(class_names[int(label)])
                     anno["truncated"].append(0.0)
                     anno["occluded"].append(0)
-                    #anno["alpha"].append(-10)
+                    # anno["alpha"].append(-10)
                     anno["alpha"].append(alpha)
                     anno["bbox"].append(bbox2d)
-                    #anno["dimensions"].append(np.array([-1,-1,-1]))
+                    # anno["dimensions"].append(np.array([-1,-1,-1]))
                     anno["dimensions"].append(bbox3d[[3, 4, 5]])
-                    #anno["location"].append(np.array([-1000,-1000,-1000]))
+                    # anno["location"].append(np.array([-1000,-1000,-1000]))
                     anno["location"].append(bbox3d[:3])
-                    #anno["rotation_y"].append(-10)
+                    # anno["rotation_y"].append(-10)
                     anno["rotation_y"].append(bbox3d[6])
                     anno["score"].append(score)
                     num_example += 1
@@ -62,13 +62,8 @@ def single_test(model, data_loader, saveto=None, class_names=['Car']):
                     if saveto is not None:
                         of_path = os.path.join(saveto, '%06d.txt' % img_idx)
                         with open(of_path, 'w+') as f:
-                            for name, bbox, dim, loc, ry, score, alpha in zip(anno['name'], \
-                                                                       anno["bbox"], \
-                                                                       anno["dimensions"], \
-                                                                       anno["location"], \
-                                                                       anno["rotation_y"], \
-                                                                       anno["score"],\
-                                                                       anno["alpha"]):
+                            for name, bbox, dim, loc, ry, score, alpha in zip(anno['name'], anno["bbox"], \
+                            anno["dimensions"], anno["location"], anno["rotation_y"], anno["score"],anno["alpha"]):
                                 line = template.format(name, 0, 0, alpha, *bbox, *dim[[1,2,0]], *loc, ry, score)
                                 f.write(line)
 
@@ -87,13 +82,9 @@ def single_test(model, data_loader, saveto=None, class_names=['Car']):
                     f.close()
                 annos.append(kitti.empty_result_anno())
 
-            # if show:
-            #     model.module.show_result(data, result,
-            #                              data_loader.dataset.img_norm_cfg)
             num_example = annos[-1]["name"].shape[0]
             annos[-1]["image_idx"] = np.array(
                 [img_idx] * num_example, dtype=np.int64)
-
 
         batch_size = len(results)
         for _ in range(batch_size):
@@ -133,26 +124,23 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # if args.out is not None and not args.out.endswith(('.pkl', '.pickle')):
-    #     raise ValueError('The output file must be a pkl file.')
-
     cfg = mmcv.Config.fromfile(args.config)
     cfg.model.pretrained = None
 
     dataset = utils.get_dataset(cfg.data.val)
     class_names = cfg.data.val.class_names
+
     if args.gpus == 1:
         model = build_detector(
             cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
-        load_checkpoint(model, args.checkpoint)
+        #load_checkpoint(model, args.checkpoint)
         model = MMDataParallel(model, device_ids=[0])
-
+        load_params_from_file(model, args.checkpoint)
         data_loader = build_dataloader(
             dataset,
             1,
             cfg.data.workers_per_gpu,
             num_gpus=1,
-            #collate_fn= cfg.data.collate_fn,
             shuffle=False,
             dist=False)
         outputs = single_test(model, data_loader, args.out, class_names)
@@ -162,27 +150,6 @@ def main():
     gt_annos = kitti.get_label_annos(dataset.label_prefix, dataset.sample_ids)
     result = get_official_eval_result(gt_annos, outputs, current_classes=class_names)
     print(result)
-    if args.out:
-        print('writing results to {}'.format(args.out))
-        mmcv.dump(outputs, args.out)
-        eval_types = args.eval
-        if eval_types:
-            print('Starting evaluate {}'.format(' and '.join(eval_types)))
-            if eval_types == ['proposal_fast']:
-                result_file = args.out
-                coco_eval(result_file, eval_types, dataset.coco)
-            else:
-                if not isinstance(outputs[0], dict):
-                    result_file = args.out + '.json'
-                    results2json(dataset, outputs, result_file)
-                    coco_eval(result_file, eval_types, dataset.coco)
-                else:
-                    for name in outputs[0]:
-                        print('\nEvaluating {}'.format(name))
-                        outputs_ = [out[name] for out in outputs]
-                        result_file = args.out + '.{}.json'.format(name)
-                        results2json(dataset, outputs_, result_file)
-                        coco_eval(result_file, eval_types, dataset.coco)
 
 
 if __name__ == '__main__':

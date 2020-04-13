@@ -1,7 +1,7 @@
 import pathlib
 import pickle
 import numpy as np
-
+import os.path as osp
 from mmdet.core.bbox3d.geometry import remove_outside_points, points_in_rbbox, box_camera_to_lidar
 import tools.kitti_common as kitti
 from tqdm import tqdm as prog_bar
@@ -49,12 +49,11 @@ def _calculate_num_points_in_gt(data_path, infos, relative_path, remove_outside=
 
 def create_kitti_info_file(data_path,
                            save_path=None,
-                           create_trainval=False,
                            relative_path=True):
-    train_img_ids = _read_imageset_file("./data/ImageSets/train.txt")
-    val_img_ids = _read_imageset_file("./data/ImageSets/val.txt")
-    trainval_img_ids = _read_imageset_file("./data/ImageSets/trainval.txt")
-    test_img_ids = _read_imageset_file("./data/ImageSets/test.txt")
+    train_img_ids = _read_imageset_file(osp.join(data_path, "ImageSets/train.txt"))
+    val_img_ids = _read_imageset_file(osp.join(data_path, "ImageSets/val.txt"))
+    trainval_img_ids = _read_imageset_file(osp.join(data_path, "ImageSets/trainval.txt"))
+    test_img_ids = _read_imageset_file(osp.join(data_path, "ImageSets/test.txt"))
 
     print("Generate info. this may take several minutes.")
     if save_path is None:
@@ -85,20 +84,7 @@ def create_kitti_info_file(data_path,
     print(f"Kitti info val file is saved to {filename}")
     with open(filename, 'wb') as f:
         pickle.dump(kitti_infos_val, f)
-    """
-    if create_trainval:
-        kitti_infos_trainval = kitti.get_kitti_image_info(
-            data_path,
-            training=True,
-            velodyne=True,
-            calib=True,
-            image_ids=trainval_img_ids,
-            relative_path=relative_path)
-        filename = save_path / 'kitti_infos_trainval.pkl'
-        print(f"Kitti info trainval file is saved to {filename}")
-        with open(filename, 'wb') as f:
-            pickle.dump(kitti_infos_trainval, f)
-    """
+
     filename = save_path / 'kitti_infos_trainval.pkl'
     print(f"Kitti info trainval file is saved to {filename}")
     with open(filename, 'wb') as f:
@@ -210,7 +196,6 @@ def create_groundtruth_database(data_path,
     for info in prog_bar(kitti_infos):
         velodyne_path = info['velodyne_path']
         if relative_path:
-            # velodyne_path = str(root_path / velodyne_path) + "_reduced"
             velodyne_path = str(root_path / velodyne_path)
         num_features = 4
         if 'pointcloud_num_features' in info:
@@ -267,8 +252,6 @@ def create_groundtruth_database(data_path,
                     "box3d_lidar": rbbox_lidar[i],
                     "num_points_in_gt": gt_points.shape[0],
                     "difficulty": difficulty[i],
-                    # "group_id": -1,
-                    # "bbox": bboxes[i],
                 }
 
                 local_group_id = group_ids[i]
@@ -288,8 +271,9 @@ def create_groundtruth_database(data_path,
 
 
 if __name__ == '__main__':
-    create_kitti_info_file('/home/billy/datasets/KITTI')
-    create_reduced_point_cloud('/home/billy/datasets/KITTI')
-    create_groundtruth_database(data_path='/home/billy/datasets/KITTI',\
-                                info_path='/home/billy/datasets/KITTI/kitti_infos_trainval.pkl',\
-                                db_info_save_path='/home/billy/datasets/KITTI/kitti_dbinfos_trainval.pkl')
+    create_kitti_info_file('/home/billyhe/data/KITTI')
+    create_reduced_point_cloud('/home/billyhe/data/KITTI')
+
+    create_groundtruth_database(data_path='/home/billyhe/data/KITTI', \
+                                info_path='/home/billyhe/data/KITTI/kitti_infos_trainval.pkl', \
+                                db_info_save_path='/home/billyhe/data/KITTI/kitti_dbinfos_trainval.pkl')

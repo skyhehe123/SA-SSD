@@ -78,7 +78,7 @@ test_cfg = dict(
 )
 # dataset settings
 dataset_type = 'KittiLiDAR'
-data_root = '/home/billyhe/data/KITTI/'
+data_root = '/home/billyhe/hdd/KITTI/'
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 data = dict(
@@ -160,8 +160,10 @@ data = dict(
         test_mode=True),
 )
 # optimizer
-optimizer = dict(type='SGD', lr=0.01, momentum=0.9, weight_decay=0.001)
-optimizer_config = dict(grad_clip=dict(max_norm=10, norm_type=2))
+optimizer = dict(
+    type='sgd', lr=0.01, momentum=0.9, weight_decay=0.001,
+    grad_clip=dict(max_norm=10, norm_type=2)
+)
 # learning policy
 lr_config = dict(
     policy='cosine',
@@ -170,12 +172,9 @@ lr_config = dict(
     warmup_ratio=1.0 / 3,
 )
 
-checkpoint_config = dict(interval=5)
-log_config = dict(
-    interval=20,
-    hooks=[
-        dict(type='TextLoggerHook'),
-    ])
+checkpoint_config = dict(interval=1)
+log_config = dict(interval=20)
+
 total_epochs = 50
 dist_params = dict(backend='nccl')
 log_level = 'INFO'

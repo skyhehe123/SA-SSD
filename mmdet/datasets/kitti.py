@@ -6,9 +6,9 @@ import torch
 from torch.utils.data import Dataset
 from mmdet.datasets.transforms import (ImageTransform, BboxTransform)
 from mmdet.datasets.utils import to_tensor, random_scale
-from mmdet.datasets.kitti_utils import read_label, read_lidar, load_proposals, \
+from mmdet.datasets.kitti_utils import read_label, read_lidar, \
     project_rect_to_velo, Calibration, get_lidar_in_image_fov, \
-    project_rect_to_image, project_rect_to_right
+    project_rect_to_image, project_rect_to_right, load_proposals
 from mmdet.core.bbox3d.geometry import rbbox2d_to_near_bbox, filter_gt_box_outside_range, \
     sparse_sum_for_anchors_mask, fused_get_anchors_area, limit_period, center_to_corner_box3d, points_in_rbbox
 import os
@@ -126,7 +126,6 @@ class KittiLiDAR(Dataset):
         gt_bboxes = np.array(gt_bboxes, dtype=np.float32)
         gt_types = [object.type for object in objects if object.type not in ["DontCare"]]
 
-        #gt_labels = np.ones(len(gt_bboxes), dtype=np.int64)
 
         # transfer from cam to lidar coordinates
         if len(gt_bboxes) != 0:
@@ -160,8 +159,8 @@ class KittiLiDAR(Dataset):
             assert len(gt_types) == len(gt_bboxes)
 
             # to avoid overlapping point (option)
-            # masks = points_in_rbbox(points, sampled_gt_boxes)
-            masks = points_op_cpu.points_in_bbox3d_np(points[:,:3], sampled_gt_boxes)
+            masks = points_in_rbbox(points, sampled_gt_boxes)
+            #masks = points_op_cpu.points_in_bbox3d_np(points[:,:3], sampled_gt_boxes)
 
             points = points[np.logical_not(masks.any(-1))]
 

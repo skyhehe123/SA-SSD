@@ -3,7 +3,6 @@ from functools import partial
 from mmcv.runner import get_dist_info
 from mmcv.parallel import collate
 from torch.utils.data import DataLoader
-from mmdet.datasets import utils
 from .sampler import GroupSampler, DistributedGroupSampler
 
 # https://github.com/pytorch/pytorch/issues/973
@@ -16,12 +15,10 @@ def build_dataloader(dataset,
                      imgs_per_gpu,
                      workers_per_gpu,
                      num_gpus=1,
-                     # collate_fn=None,
                      dist=True,
                      **kwargs):
     if dist:
         rank, world_size = get_dist_info()
-        #print('rank/world_size: %d/%d' % (rank, world_size))
         sampler = DistributedGroupSampler(dataset, imgs_per_gpu, world_size,
                                           rank)
         batch_size = imgs_per_gpu
@@ -33,10 +30,7 @@ def build_dataloader(dataset,
             sampler = GroupSampler(dataset, imgs_per_gpu)
         batch_size = num_gpus * imgs_per_gpu
         num_workers = num_gpus * workers_per_gpu
-    # if collate_fn is not None:
-    #     collate_fn = getattr(utils, collate_fn)
-    # else:
-    #     collate_fn = collate
+
     data_loader = DataLoader(
         dataset,
         batch_size=batch_size,

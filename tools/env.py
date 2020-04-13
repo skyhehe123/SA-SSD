@@ -1,7 +1,7 @@
 import logging
 import os
 import random
-
+import time
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -45,13 +45,20 @@ def set_random_seed(seed):
     torch.cuda.manual_seed_all(seed)
 
 
-def get_root_logger(log_level=logging.INFO):
+def get_root_logger(work_dir):
+    logging.basicConfig(
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        level=logging.INFO)
+
     logger = logging.getLogger()
-    if not logger.hasHandlers():
-        logging.basicConfig(
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            level=log_level)
     rank, _ = get_dist_info()
     if rank != 0:
         logger.setLevel('ERROR')
+
+    filename = '{}.log'.format(time.strftime('%Y%m%d_%H%M%S', time.localtime()))
+    log_file = os.path.join(work_dir, filename)
+    file_handler = logging.FileHandler(log_file, 'w')
+    file_handler.setLevel(logging.INFO)
+    logger.addHandler(file_handler)
+
     return logger
