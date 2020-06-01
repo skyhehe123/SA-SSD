@@ -1,6 +1,7 @@
 from __future__ import division
 import argparse
 import sys
+import torch
 sys.path.append('/home/billyhe/SA-SSD')
 from mmcv.runner import Runner, DistSamplerSeedHook
 from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
@@ -78,7 +79,10 @@ def main():
         cfg.model, train_cfg=cfg.train_cfg, test_cfg=cfg.test_cfg)
 
     if distributed:
-        model = MMDistributedDataParallel(model).cuda()
+        # model = MMDistributedDataParallel(model).cuda()
+        device = torch.device('cuda', args.local_rank)
+        model = model.to(device)
+        model = MMDistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank)
     else:
         model = MMDataParallel(model, device_ids=range(cfg.gpus)).cuda()
 
