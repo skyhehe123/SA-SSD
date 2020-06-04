@@ -56,7 +56,7 @@ def remove_outside_points(points, rect, Trv2c, P2, image_shape):
     frustum = np.linalg.inv(R) @ frustum.T
     frustum = camera_to_lidar(frustum.T, rect, Trv2c)
     frustum_surfaces = corner_to_surfaces_3d_jit(frustum[np.newaxis, ...])
-    indices = points_in_convex_polygon_3d_jit(points[:, :3], frustum_surfaces)
+    indices = points_in_convex_polygon_3d_jit_v2(points[:, :3], frustum_surfaces)
     points = points[indices.reshape([-1])]
     return points
 
@@ -70,7 +70,7 @@ def points_in_rbbox(points, rbbox, lidar=True):
     rbbox_corners = center_to_corner_box3d(
         rbbox, origin=origin, axis=h_axis)
     surfaces = corner_to_surfaces_3d(rbbox_corners)
-    indices = points_in_convex_polygon_3d_jit(points[:, :3], surfaces)
+    indices = points_in_convex_polygon_3d_jit_v2(points[:, :3], surfaces)
     return indices
 
 @numba.jit(nopython=False)
@@ -707,4 +707,56 @@ def fused_get_anchors_area(dense_map, anchors_bv, stride, offset,
         IB = dense_map[anchor_coor[3], anchor_coor[0]]
         IC = dense_map[anchor_coor[1], anchor_coor[2]]
         ret[i] = ID - IB - IC + IA
+    return ret
+
+@numba.njit
+def points_in_convex_polygon_3d_jit_v2(points,
+                                    surfaces,
+                                    num_surfaces=None):
+    """check points is in 3d convex polygons.
+    Args:
+        points: [num_points, 3] array.
+        polygon_surfaces: [num_polygon, max_num_surfaces,
+            max_num_points_of_surface, 3]
+            array. all surfaces' normal vector must direct to internal.
+            max_num_points_of_surface must at least 3.
+        num_surfaces: [num_polygon] array. indicate how many surfaces
+            a polygon contain
+    Returns:
+        [num_points, num_polygon] bool array.
+    """
+    num_polygon = surfaces.shape[0]
+    max_num_surfaces = surfaces.shape[1]
+    num_points = points.shape[0]
+    normal_vec = np.zeros((num_polygon, max_num_surfaces, 3), dtype=surfaces.dtype)
+    d = np.zeros((num_polygon, max_num_surfaces), dtype=surfaces.dtype)
+    sv0 = surfaces[0, 0, 0] - surfaces[0, 0, 1]
+    sv1 = surfaces[0, 0, 0] - surfaces[0, 0, 1]
+    ret = np.ones((num_points, num_polygon), dtype=np.bool_)
+    for i in range(num_polygon):
+        for j in range(max_num_surfaces):
+            sv0[0] = surfaces[i, j, 0, 0] - surfaces[i, j, 1, 0]
+            sv0[1] = surfaces[i, j, 0, 1] - surfaces[i, j, 1, 1]
+            sv0[2] = surfaces[i, j, 0, 2] - surfaces[i, j, 1, 2]
+            sv1[0] = surfaces[i, j, 1, 0] - surfaces[i, j, 2, 0]
+            sv1[1] = surfaces[i, j, 1, 1] - surfaces[i, j, 2, 1]
+            sv1[2] = surfaces[i, j, 1, 2] - surfaces[i, j, 2, 2]
+            normal_vec[i, j, 0] = (sv0[1] * sv1[2] - sv0[2] * sv1[1])
+            normal_vec[i, j, 1] = (sv0[2] * sv1[0] - sv0[0] * sv1[2])
+            normal_vec[i, j, 2] = (sv0[0] * sv1[1] - sv0[1] * sv1[0])
+
+            d[i, j] = -surfaces[i, j, 0, 0] * normal_vec[i, j, 0] - \
+                      surfaces[i, j, 0, 1] * normal_vec[i, j, 1] - \
+                       surfaces[i, j, 0, 2] * normal_vec[i, j, 2]
+
+    sign = 0.0
+    for i in range(num_points):
+        for j in range(num_polygon):
+            for k in range(max_num_surfaces):
+                sign = points[i, 0] * normal_vec[j, k, 0] \
+                     + points[i, 1] * normal_vec[j, k, 1] \
+                     + points[i, 2] * normal_vec[j, k, 2] + d[j, k]
+                if sign >= 0:
+                    ret[i, j] = False
+                    break
     return ret
