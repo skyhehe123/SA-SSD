@@ -1,7 +1,7 @@
 import argparse
 import torch
 import mmcv
-from mmcv.runner import load_checkpoint, parallel_test
+from mmcv.runner import load_checkpoint
 from mmcv.parallel import scatter, collate, MMDataParallel
 from mmdet.core.evaluation.kitti_eval import get_official_eval_result
 from mmdet.core import results2json, coco_eval
@@ -13,6 +13,7 @@ import torch.utils.data
 import os
 from tools.train_utils import load_params_from_file
 from mmdet.datasets import utils
+
 
 def single_test(model, data_loader, saveto=None, class_names=['Car']):
     template = '{} ' + ' '.join(['{:.4f}' for _ in range(15)]) + '\n'
@@ -26,7 +27,7 @@ def single_test(model, data_loader, saveto=None, class_names=['Car']):
     for i, data in enumerate(data_loader):
         with torch.no_grad():
             results = model(return_loss=False, **data)
-        image_shape = (375,1242)
+        image_shape = (375, 1242)
         for re in results:
             img_idx = re['image_idx']
             if re['bbox'] is not None:
@@ -62,9 +63,10 @@ def single_test(model, data_loader, saveto=None, class_names=['Car']):
                     if saveto is not None:
                         of_path = os.path.join(saveto, '%06d.txt' % img_idx)
                         with open(of_path, 'w+') as f:
-                            for name, bbox, dim, loc, ry, score, alpha in zip(anno['name'], anno["bbox"], \
-                            anno["dimensions"], anno["location"], anno["rotation_y"], anno["score"],anno["alpha"]):
-                                line = template.format(name, 0, 0, alpha, *bbox, *dim[[1,2,0]], *loc, ry, score)
+                            for name, bbox, dim, loc, ry, score, alpha in zip(anno['name'], anno["bbox"],
+                                                                              anno["dimensions"], anno["location"], anno["rotation_y"], anno["score"], anno["alpha"]):
+                                line = template.format(
+                                    name, 0, 0, alpha, *bbox, *dim[[1, 2, 0]], *loc, ry, score)
                                 f.write(line)
 
                     anno = {n: np.stack(v) for n, v in anno.items()}
@@ -148,7 +150,8 @@ def main():
         NotImplementedError
     # kitti evaluation
     gt_annos = kitti.get_label_annos(dataset.label_prefix, dataset.sample_ids)
-    result = get_official_eval_result(gt_annos, outputs, current_classes=class_names)
+    result = get_official_eval_result(
+        gt_annos, outputs, current_classes=class_names)
     print(result)
 
 
