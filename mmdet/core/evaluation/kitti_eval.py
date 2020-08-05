@@ -682,9 +682,9 @@ def do_eval(gt_annos, dt_annos, current_class, min_overlaps,
 
 def get_mAP_v2(prec):
     sums = 0
-    for i in range(0, prec.shape[-1]):
+    for i in range(0, prec.shape[-1], 4):
         sums = sums + prec[..., i]
-    return sums / 41 * 100
+    return sums / 11 * 100
 
 
 def do_eval_v2(gt_annos,

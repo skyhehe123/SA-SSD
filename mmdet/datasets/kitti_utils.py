@@ -372,3 +372,5 @@ def draw_gt_boxes3d(gt_boxes3d, fig, color=(1,1,1), line_width=1, draw_text=Fals
 
 
 
+if __name__ == "__main__":
+    NotImplemented

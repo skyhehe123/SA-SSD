@@ -86,15 +86,6 @@ def get_dataset(data_cfg):
         ann_files = [data_cfg['ann_file']]
         num_dset = 1
 
-    if 'proposal_file' in data_cfg.keys():
-        if isinstance(data_cfg['proposal_file'], (list, tuple)):
-            proposal_files = data_cfg['proposal_file']
-        else:
-            proposal_files = [data_cfg['proposal_file']]
-    else:
-        proposal_files = [None] * num_dset
-    assert len(proposal_files) == num_dset
-
     if isinstance(data_cfg['img_prefix'], (list, tuple)):
         img_prefixes = data_cfg['img_prefix']
     else:
@@ -112,20 +103,14 @@ def get_dataset(data_cfg):
         augmentor = None
 
     if 'anchor_generator' in data_cfg.keys() and data_cfg['anchor_generator'] is not None:
-        anchor_generator = obj_from_dict(data_cfg['anchor_generator'], anchor3d_generator)
+        anchor_generator = {cls: obj_from_dict(cfg, anchor3d_generator) for cls, cfg in data_cfg['anchor_generator'].items()}
     else:
         anchor_generator = None
-
-    if 'target_encoder' in data_cfg.keys() and data_cfg['target_encoder'] is not None:
-        target_encoder = obj_from_dict(data_cfg['target_encoder'], bbox3d_target)
-    else:
-        target_encoder = None
 
     dsets = []
     for i in range(num_dset):
         data_info = copy.deepcopy(data_cfg)
         data_info['ann_file'] = ann_files[i]
-        data_info['proposal_file'] = proposal_files[i]
         data_info['img_prefix'] = img_prefixes[i]
         if generator is not None:
             data_info['generator'] = generator
@@ -133,8 +118,6 @@ def get_dataset(data_cfg):
             data_info['anchor_generator'] = anchor_generator
         if augmentor is not None:
             data_info['augmentor'] = augmentor
-        if target_encoder is not None:
-            data_info['target_encoder'] = target_encoder
         dset = obj_from_dict(data_info, datasets)
         dsets.append(dset)
     if len(dsets) > 1:

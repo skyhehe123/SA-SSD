@@ -67,7 +67,11 @@ def train_one_epoch(model, optimizer, train_loader, lr_scheduler, lr_warmup_sche
         # log to console
         if rank == 0 and (i+1) % log_interval == 0:
             log_buffer.average()
-            logger.info('epoch[%d][%d/%d]: lr: %f, loss: %f' % (train_epoch, i+1, len(train_loader), cur_lr, log_buffer.output['loss']))
+            disp_str = 'epoch[%d][%d/%d]: lr: %f, '
+            for k in log_buffer.output.keys():
+                disp_str += k + ': %f, '
+            disp_str = disp_str[:-2]
+            logger.info(disp_str % (train_epoch, i + 1, len(train_loader), cur_lr, *log_buffer.output.values()))
             log_buffer.clear()
     return accumulated_iter
 

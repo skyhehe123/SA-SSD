@@ -2,6 +2,7 @@ import numpy as np
 import numpy.random as npr
 import torch
 
+
 def unmap(data, count, inds, fill=0):
     """Unmap a subset of item (data) back to the original set of items (of
     size count)"""
@@ -136,9 +137,10 @@ def create_target_np(all_anchors,
 
 
 def create_target_torch(all_anchors,
-                        gt_boxes,
                         anchor_mask,
+                        gt_boxes,
                         gt_classes,
+                        gt_mask,
                         similarity_fn,
                         box_encoding_fn,
                         matched_threshold=0.6,
@@ -147,7 +149,6 @@ def create_target_torch(all_anchors,
                         rpn_batch_size=300,
                         norm_by_num_examples=False,
                         box_code_size=7):
-
     def _unmap(data, count, inds, fill=0):
         """ Unmap a subset of item (data) back to the original set of items (of
         size count) """
@@ -161,8 +162,8 @@ def create_target_torch(all_anchors,
         return ret
 
     total_anchors = all_anchors.shape[0]
+
     if anchor_mask is not None:
-        #inds_inside = np.where(anchors_mask)[0]  # prune_anchor_fn(all_anchors)
         anchors = all_anchors[anchor_mask, :]
         if not isinstance(matched_threshold, float):
             matched_threshold = matched_threshold[anchor_mask]
@@ -170,11 +171,16 @@ def create_target_torch(all_anchors,
             unmatched_threshold = unmatched_threshold[anchor_mask]
     else:
         anchors = all_anchors
-        #inds_inside = None
-    num_inside = len(torch.nonzero(anchor_mask)) if anchor_mask is not None else total_anchors
 
     if gt_classes is None:
         gt_classes = torch.ones([gt_boxes.shape[0]], dtype=torch.int64, device=gt_boxes.device)
+
+    if gt_mask is not None:
+        gt_boxes = gt_boxes[gt_mask]
+        gt_classes = gt_classes[gt_mask]
+
+    num_inside = len(torch.nonzero(anchor_mask)) if anchor_mask is not None else total_anchors
+
     # Compute anchor labels:
     # label=1 is positive, 0 is negative, -1 is don't care (ignore)
     labels = torch.empty((num_inside,), dtype=torch.int64, device=gt_boxes.device).fill_(-1)
@@ -201,7 +207,7 @@ def create_target_torch(all_anchors,
         # (this includes many ties)
 
         anchors_with_max_overlap = torch.nonzero(
-            anchor_by_gt_overlap == gt_to_anchor_max)[:,0]
+            anchor_by_gt_overlap == gt_to_anchor_max)[:, 0]
         # Fg label: for each gt use anchors with highest overlap
         # (including ties)
         gt_inds_force = anchor_to_gt_argmax[anchors_with_max_overlap]
@@ -212,12 +218,12 @@ def create_target_torch(all_anchors,
         gt_inds = anchor_to_gt_argmax[pos_inds]
         labels[pos_inds] = gt_classes[gt_inds]
         gt_ids[pos_inds] = gt_inds
-        #bg_inds = np.where(anchor_to_gt_max < unmatched_threshold)[0]
+        # bg_inds = np.where(anchor_to_gt_max < unmatched_threshold)[0]
         bg_inds = torch.nonzero(anchor_to_gt_max < unmatched_threshold)[:, 0]
     else:
         bg_inds = torch.arange(num_inside)
-
-    #fg_inds = np.where(labels > 0)[0]
+        anchor_to_gt_max = torch.zeros(num_inside).type_as(anchors)
+    # fg_inds = np.where(labels > 0)[0]
     fg_inds = torch.nonzero(labels > 0)[:, 0]
 
     # subsample positive labels if we have too many
@@ -227,7 +233,7 @@ def create_target_torch(all_anchors,
             disable_inds = npr.choice(
                 fg_inds, size=(len(fg_inds) - num_fg), replace=False)
             labels[disable_inds] = -1
-            #fg_inds = np.where(labels > 0)[0]
+            # fg_inds = np.where(labels > 0)[0]
             fg_inds = torch.where(labels > 0)[:, 0]
 
         # subsample negative labels if we have too many

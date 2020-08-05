@@ -11,6 +11,7 @@ from mmdet.core.bbox3d.geometry import (center_to_corner_box2d,\
 import copy
 import pickle
 import numba
+from mmdet.datasets.kitti_utils import project_velo_to_rect, project_rect_to_velo
 
 def select_transform(transform, indices):
     result = np.zeros(
@@ -150,13 +151,17 @@ class PointAugmentor:
             db_infos_all = pickle.load(f)
 
         self._samplers = list()
-        for sample_class in sample_classes:
+
+        if isinstance(min_num_points, int):
+            min_num_points = [min_num_points] * len(sample_classes)
+
+        for i, sample_class in enumerate(sample_classes):
             db_infos = db_infos_all[sample_class]
             print(f"load {len(db_infos)} {sample_class} database infos")
 
             filtered_infos = []
             for info in db_infos:
-                if info["num_points_in_gt"] >= min_num_points:
+                if info["num_points_in_gt"] >= min_num_points[i]:
                     filtered_infos.append(info)
             db_infos = filtered_infos
 
@@ -173,8 +178,11 @@ class PointAugmentor:
         self.root_path = root_path
         # self._db_infos = new_db_infos
         self._sample_classes = sample_classes
-        self._sample_max_num = sample_max_num
-        # self._sampler = BatchSampler(self._db_infos, sample_class)
+
+        if isinstance(sample_max_num, int):
+            self._sample_max_num = [sample_max_num] * len(sample_classes)
+        else:
+            self._sample_max_num = sample_max_num
 
         self._global_rot_range = global_rot_range
         self._gt_rot_range = gt_rot_range
@@ -182,14 +190,14 @@ class PointAugmentor:
         self._min_scale = scale_range[0]
         self._max_scale = scale_range[1]
 
-    def sample_all(self, gt_boxes, gt_types):
+    def sample_all(self, gt_boxes, gt_types, road_planes=None, calib=None):
         avoid_coll_boxes = gt_boxes
 
         sampled = []
         sampled_gt_boxes = []
 
         for i, class_name in enumerate(self._sample_classes):
-            sampled_num_per_class = int(self._sample_max_num - np.sum([n == class_name for n in gt_types]))
+            sampled_num_per_class = int(self._sample_max_num[i] - np.sum([n == class_name for n in gt_types]))
             if sampled_num_per_class > 0:
                 sampled_cls = self.sample(avoid_coll_boxes, sampled_num_per_class, i)
             else:
@@ -211,16 +219,26 @@ class PointAugmentor:
 
         if len(sampled) > 0:
             sampled_gt_boxes = np.concatenate(sampled_gt_boxes, axis=0)
-            #num_sampled = len(sampled)
+            if road_planes is not None:
+                center = sampled_gt_boxes[:, 0:3]
+                a, b, c, d = road_planes
+                center_cam = project_velo_to_rect(center, calib)
+                cur_height_cam = (-d - a * center_cam[:, 0] - c * center_cam[:, 2]) / b
+                center_cam[:, 1] = cur_height_cam
+                lidar_tmp_point = project_rect_to_velo(center_cam, calib)
+                cur_lidar_height = lidar_tmp_point[:, 2]
+                mv_height = sampled_gt_boxes[:, 2] - cur_lidar_height
+                sampled_gt_boxes[:, 2] -= mv_height  # lidar view
             s_points_list = []
             sampled_gt_types = []
-            for info in sampled:
+            for i, info in enumerate(sampled):
                 s_points = np.fromfile(
                     str(pathlib.Path(self.root_path) / info["path"]),
                     dtype=np.float32)
                 s_points = s_points.reshape([-1, 4])
-
                 s_points[:, :3] += info["box3d_lidar"][:3]
+                if road_planes is not None:
+                    s_points[:, 2] -= mv_height[i]
                 s_points_list.append(s_points)
                 sampled_gt_types.append(info['name'])
 

@@ -103,7 +103,11 @@ class SSDRotateHead(nn.Module):
                  box_code_size=7,
                  ):
         super(SSDRotateHead, self).__init__()
-        self._num_class = num_class
+        num_anchor_per_loc *= num_class
+        if use_sigmoid_cls:
+            self._num_class = num_class
+        else:
+            self._num_class = num_class + 1
         self._num_anchor_per_loc = num_anchor_per_loc
         self._use_direction_classifier = use_direction_classifier
         self._use_sigmoid_cls = use_sigmoid_cls
@@ -113,12 +117,7 @@ class SSDRotateHead(nn.Module):
         self._box_code_size = box_code_size
         self._num_output_filters = num_output_filters
 
-        if use_sigmoid_cls:
-            num_cls = num_anchor_per_loc * num_class
-        else:
-            num_cls = num_anchor_per_loc * (num_class + 1)
-
-        self.conv_cls = nn.Conv2d(num_output_filters, num_cls, 1)
+        self.conv_cls = nn.Conv2d(num_output_filters, num_anchor_per_loc * self._num_class, 1)
         self.conv_box = nn.Conv2d(
             num_output_filters, num_anchor_per_loc * box_code_size, 1)
         if use_direction_classifier:
@@ -193,15 +192,20 @@ class SSDRotateHead(nn.Module):
                     box_code_size=7):
         batch_size = int(box_preds.shape[0])
         box_preds = box_preds.view(batch_size, -1, box_code_size)
+
         if use_sigmoid_cls:
             cls_preds = cls_preds.view(batch_size, -1, num_class)
         else:
             cls_preds = cls_preds.view(batch_size, -1, num_class + 1)
+
         one_hot_targets = one_hot(
             cls_targets, depth=num_class + 1, dtype=box_preds.dtype)
+
         if use_sigmoid_cls:
             one_hot_targets = one_hot_targets[..., 1:]
+
         if encode_rad_error_by_sin:
+            # sin(a - b) = sinacosb-cosasinb
             box_preds, reg_targets = self.add_sin_difference(box_preds, reg_targets)
 
         loc_losses = weighted_smoothl1(box_preds, reg_targets, beta=1 / 9., \
@@ -212,34 +216,53 @@ class SSDRotateHead(nn.Module):
         return loc_losses, cls_losses
 
     def forward(self, x):
+        N, _, H, W = x.shape
         box_preds = self.conv_box(x)
         cls_preds = self.conv_cls(x)
+
+        box_preds = box_preds.view(N, self._num_class, -1, H, W)
+        cls_preds = cls_preds.view(N, self._num_class, -1, H, W)
+
         # [N, C, y(H), x(W)]
-        box_preds = box_preds.permute(0, 2, 3, 1).contiguous()
-        cls_preds = cls_preds.permute(0, 2, 3, 1).contiguous()
+        box_preds = box_preds.permute(0, 1, 3, 4, 2).contiguous()
+        cls_preds = cls_preds.permute(0, 1, 3, 4, 2).contiguous()
 
         if self._use_direction_classifier:
             dir_cls_preds = self.conv_dir_cls(x)
-            dir_cls_preds = dir_cls_preds.permute(0, 2, 3, 1).contiguous()
+            dir_cls_preds = dir_cls_preds.view(N, self._num_class, -1, H, W)
+            dir_cls_preds = dir_cls_preds.permute(0, 1, 3, 4, 2).contiguous()
 
         return box_preds, cls_preds, dir_cls_preds
 
-    def loss(self, box_preds, cls_preds, dir_cls_preds, gt_bboxes, gt_labels, anchors, anchors_mask, cfg):
+    def loss(self, box_preds, cls_preds, dir_cls_preds, gt_bboxes, gt_labels, gt_types, anchors, anchors_mask, cfg):
 
         batch_size = box_preds.shape[0]
 
-        labels, targets, ious = multi_apply(create_target_torch,
-                                            anchors, gt_bboxes,
-                                            anchors_mask, gt_labels,
-                                            similarity_fn=getattr(iou3d_utils, cfg.assigner.similarity_fn)(),
-                                            box_encoding_fn = second_box_encode,
-                                            matched_threshold=cfg.assigner.pos_iou_thr,
-                                            unmatched_threshold=cfg.assigner.neg_iou_thr,
-                                            box_code_size=self._box_code_size)
+        multi_labels = list()
+        multi_targets = list()
+        multi_anchors = list()
 
+        for cls_name, cls_anchor in anchors.items():
+            gt_mask = [torch.BoolTensor(c == cls_name).to(cls_anchor.device) for c in gt_types]
+            labels, targets, ious = multi_apply(create_target_torch,
+                                                cls_anchor, anchors_mask[cls_name],
+                                                gt_bboxes, gt_labels, gt_mask,
+                                                similarity_fn=getattr(iou3d_utils, cfg.assigner.similarity_fn)(),
+                                                box_encoding_fn=second_box_encode,
+                                                matched_threshold=cfg.assigner[cls_name].pos_iou_thr,
+                                                unmatched_threshold=cfg.assigner[cls_name].neg_iou_thr,
+                                                box_code_size=self._box_code_size)
+            multi_labels.append(torch.stack(labels))
+            multi_targets.append(torch.stack(targets))
+            multi_anchors.append(cls_anchor)
 
-        labels = torch.stack(labels,)
-        targets = torch.stack(targets)
+        labels = torch.stack(multi_labels, 1)
+        targets = torch.stack(multi_targets, 1)
+        anchors = torch.stack(multi_anchors, 1)
+
+        labels = labels.view(batch_size, -1)
+        targets = targets.view(batch_size, -1, self._box_code_size)
+        anchors = anchors.view(batch_size, -1, self._box_code_size)
 
         cls_weights, reg_weights, cared = self.prepare_loss_weights(labels)
 
@@ -281,23 +304,34 @@ class SSDRotateHead(nn.Module):
 
         return dict(rpn_loc_loss=loc_loss_reduced, rpn_cls_loss=cls_loss_reduced, rpn_dir_loss=dir_loss_reduced)
 
-    def get_guided_anchors(self, box_preds, cls_preds, dir_cls_preds, anchors, anchors_mask, gt_bboxes, thr=.1):
+    def get_guided_anchors(self, box_preds, cls_preds, dir_cls_preds, anchors, anchors_mask, gt_bboxes, gt_labels, thr=.1):
         batch_size = box_preds.shape[0]
+
+        if isinstance(anchors, dict):
+            anchors = torch.cat([v for v in anchors.values()], 1)
+
+        if isinstance(anchors_mask, dict):
+            anchors_mask = torch.cat([v for v in anchors_mask.values()], 1)
 
         batch_box_preds = box_preds.view(batch_size, -1, self._box_code_size)
         batch_anchors_mask = anchors_mask.view(batch_size, -1)
-        batch_cls_preds = cls_preds.view(batch_size, -1)
+        batch_cls_preds = cls_preds.view(batch_size, -1, self._num_class)
         batch_box_preds = second_box_decode(batch_box_preds, anchors)
 
         if self._use_direction_classifier:
             batch_dir_preds = dir_cls_preds.view(batch_size, -1, 2)
 
-        new_boxes = []
+        guided_anchors = []
+        anchor_labels = []
+
         if gt_bboxes is None:
             gt_bboxes = [None] * batch_size
 
-        for box_preds, cls_preds, dir_preds, a_mask, gt_boxes in zip(
-                batch_box_preds, batch_cls_preds, batch_dir_preds, batch_anchors_mask, gt_bboxes
+        if gt_labels is None:
+            gt_labels = [None] * batch_size
+
+        for box_preds, cls_preds, dir_preds, a_mask, gt_boxes, gt_lbls, in zip(
+                batch_box_preds, batch_cls_preds, batch_dir_preds, batch_anchors_mask, gt_bboxes, gt_labels
         ):
             box_preds = box_preds[a_mask]
             cls_preds = cls_preds[a_mask]
@@ -311,23 +345,31 @@ class SSDRotateHead(nn.Module):
             else:
                 total_scores = F.softmax(cls_preds, dim=-1)[..., 1:]
 
-            top_scores = torch.squeeze(total_scores, -1)
+            if self._num_class == 1:
+                top_scores = torch.squeeze(total_scores, -1)
+                top_labels = torch.zeros(total_scores.shape[0], dtype=torch.int64)
+            else:
+                top_scores, top_labels = torch.max(total_scores, dim=-1)
 
             selected = top_scores > thr
 
             box_preds = box_preds[selected]
+            top_labels = top_labels[selected]
 
             if self._use_direction_classifier:
                 dir_labels = dir_labels[selected]
-                opp_labels = (box_preds[..., -1] > 0) ^ dir_labels.byte()
+                opp_labels = (box_preds[..., -1] > 0) ^ dir_labels.bool()
                 box_preds[opp_labels, -1] += np.pi
 
             # add ground-truth
             if gt_boxes is not None:
                 box_preds = torch.cat([gt_boxes, box_preds],0)
+                top_labels = torch.cat([gt_lbls, top_labels],0)
 
-            new_boxes.append(box_preds)
-        return new_boxes
+            anchor_labels.append(top_labels)
+            guided_anchors.append(box_preds)
+
+        return guided_anchors, anchor_labels
 
 def gen_sample_grid(box, window_size=(4, 7), grid_offsets=(0, 0), spatial_scale=1.):
     N = box.shape[0]
@@ -369,7 +411,7 @@ def bilinear_interpolate_torch_gridsample(image, samples_x, samples_y):
     samples[:, :, :, 1] = (samples[:, :, :, 1] / (H - 1))  # normalize to between  0 and 1
     samples = samples * 2 - 1  # normalize to between -1 and 1
 
-    return torch.nn.functional.grid_sample(image, samples)
+    return torch.nn.functional.grid_sample(image, samples, align_corners=True)
 
 class PSWarpHead(nn.Module):
     def __init__(self, grid_offsets, featmap_stride, in_channels, num_class=1, num_parts=49):
@@ -400,7 +442,7 @@ class PSWarpHead(nn.Module):
             bbox_scores.append(score)
 
         if is_test:
-            return bbox_scores, guided_anchors
+            return bbox_scores
         else:
             return torch.cat(bbox_scores, 0)
 
@@ -408,10 +450,11 @@ class PSWarpHead(nn.Module):
     def loss(self, cls_preds, gt_bboxes, gt_labels, anchors, cfg):
 
         batch_size = len(anchors)
+        batch_none = (None, ) * batch_size
 
+        # currently only support rescoring for class agnostic anchors
         labels, targets, ious = multi_apply(create_target_torch,
-                                            anchors, gt_bboxes,
-                                            (None,) * batch_size, gt_labels,
+                                            anchors, batch_none, gt_bboxes, batch_none, batch_none,
                                             similarity_fn=getattr(iou3d_utils, cfg.assigner.similarity_fn)(),
                                             box_encoding_fn = second_box_encode,
                                             matched_threshold=cfg.assigner.pos_iou_thr,
@@ -441,17 +484,24 @@ class PSWarpHead(nn.Module):
 
         return dict(loss_cls=cls_loss_reduced,)
 
-    def get_rescore_bboxes(self, guided_anchors, cls_scores, img_metas, cfg):
+    def get_rescore_bboxes(self, guided_anchors, cls_scores, anchor_labels, img_metas, cfg):
+
         det_bboxes = list()
         det_scores = list()
+        det_labels = list()
 
         for i in range(len(img_metas)):
             bbox_pred = guided_anchors[i]
             scores = cls_scores[i]
+            labels = anchor_labels[i]
 
-            if scores.numel == 0:
+            if scores.numel() == 0:
+
                 det_bboxes.append(None)
                 det_scores.append(None)
+                det_labels.append(None)
+
+                continue
 
             bbox_pred = bbox_pred.view(-1, 7)
             scores = torch.sigmoid(scores).view(-1)
@@ -459,10 +509,14 @@ class PSWarpHead(nn.Module):
 
             bbox_pred = bbox_pred[select, :]
             scores = scores[select]
+            labels = labels[select]
 
             if scores.numel() == 0:
-                det_bboxes.append(bbox_pred)
-                det_scores.append(scores)
+
+                det_bboxes.append(None)
+                det_scores.append(None)
+                det_labels.append(None)
+
                 continue
 
             boxes_for_nms = boxes3d_to_bev_torch(bbox_pred)
@@ -470,8 +524,10 @@ class PSWarpHead(nn.Module):
 
             bbox_pred = bbox_pred[keep, :]
             scores = scores[keep]
+            labels = labels[keep]
 
             det_bboxes.append(bbox_pred.detach().cpu().numpy())
             det_scores.append(scores.detach().cpu().numpy())
+            det_labels.append(labels.detach().cpu().numpy())
 
-        return det_bboxes, det_scores
+        return det_bboxes, det_scores, det_labels

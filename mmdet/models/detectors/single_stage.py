@@ -52,11 +52,9 @@ class SingleStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin,
     def merge_second_batch(self, batch_args):
         ret = {}
         for key, elems in batch_args.items():
-            if key in [
-                'voxels', 'num_points',
-            ]:
+            if key in ['voxels', 'num_points', ]:
                 ret[key] = torch.cat(elems, dim=0)
-            elif key == 'coordinates':
+            elif key in ['coordinates', ]:
                 coors = []
                 for i, coor in enumerate(elems):
                     coor_pad = F.pad(
@@ -65,12 +63,13 @@ class SingleStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin,
                         value=i)
                     coors.append(coor_pad)
                 ret[key] = torch.cat(coors, dim=0)
-            elif key in [
-                'img_meta', 'gt_labels', 'gt_bboxes',
-            ]:
+            elif key in ['img_meta', 'gt_labels', 'gt_bboxes', 'gt_types', ]:
                 ret[key] = elems
             else:
-                ret[key] = torch.stack(elems, dim=0)
+                if isinstance(elems, dict):
+                    ret[key] = {k: torch.stack(v, dim=0) for k, v in elems.items()}
+                else:
+                    ret[key] = torch.stack(elems, dim=0)
         return ret
 
     def forward_train(self, img, img_meta, **kwargs):
@@ -80,7 +79,7 @@ class SingleStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin,
         ret = self.merge_second_batch(kwargs)
 
         vx = self.backbone(ret['voxels'], ret['num_points'])
-        (x, conv6), point_misc = self.neck(vx, ret['coordinates'], batch_size)
+        x, conv6, point_misc = self.neck(vx, ret['coordinates'], batch_size, is_test=False)
 
         losses = dict()
 
@@ -90,10 +89,12 @@ class SingleStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin,
         # RPN forward and loss
         if self.with_rpn:
             rpn_outs = self.rpn_head(x)
-            rpn_loss_inputs = rpn_outs + (ret['gt_bboxes'], ret['gt_labels'], ret['anchors'], ret['anchors_mask'], self.train_cfg.rpn)
+            rpn_loss_inputs = rpn_outs + (ret['gt_bboxes'], ret['gt_labels'], ret['gt_types'],\
+                            ret['anchors'], ret['anchors_mask'], self.train_cfg.rpn)
             rpn_losses = self.rpn_head.loss(*rpn_loss_inputs)
             losses.update(rpn_losses)
-            guided_anchors = self.rpn_head.get_guided_anchors(*rpn_outs, ret['anchors'], ret['anchors_mask'], ret['gt_bboxes'], thr=0.1)
+            guided_anchors, _ = self.rpn_head.get_guided_anchors(*rpn_outs, ret['anchors'],\
+                        ret['anchors_mask'], ret['gt_bboxes'], ret['gt_labels'], thr=self.train_cfg.rpn.anchor_thr)
         else:
             raise NotImplementedError
 
@@ -117,16 +118,17 @@ class SingleStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin,
 
         rpn_outs = self.rpn_head.forward(x)
 
-        guided_anchors = self.rpn_head.get_guided_anchors(*rpn_outs, ret['anchors'], ret['anchors_mask'],
-                                                                       None, thr=.1)
+        guided_anchors, anchor_labels = self.rpn_head.get_guided_anchors(*rpn_outs, ret['anchors'], ret['anchors_mask'],
+                                                                       None, None, thr=.1)
 
-        bbox_score, guided_anchors = self.extra_head(conv6, guided_anchors, is_test=True)
+        bbox_score = self.extra_head(conv6, guided_anchors, is_test=True)
 
-        det_bboxes, det_scores = self.extra_head.get_rescore_bboxes(
-            guided_anchors, bbox_score, img_meta, self.test_cfg.extra)
+        det_bboxes, det_scores, det_labels = self.extra_head.get_rescore_bboxes(
+            guided_anchors, bbox_score, anchor_labels, img_meta, self.test_cfg.extra)
 
-        results = [kitti_bbox2results(*param) for param in zip(det_bboxes, det_scores, img_meta)]
+        results = [kitti_bbox2results(*param, class_names=self.class_names) for param in zip(det_bboxes, det_scores, det_labels, img_meta)]
 
         return results
+
 
 

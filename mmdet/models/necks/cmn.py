@@ -1,6 +1,6 @@
 import spconv
 from torch import nn
-from ..utils import change_default_args, Sequential
+from mmdet.models.utils import change_default_args, Sequential
 from mmdet.ops.pointnet2 import pointnet2_utils
 import torch
 from mmdet.ops import pts_in_boxes3d
@@ -24,6 +24,9 @@ class SpMiddleFHD(nn.Module):
         self.backbone = VxNet(num_input_features)
         self.fcn = BEVNet(in_features=num_hidden_features, num_filters=256)
 
+        self.point_fc = nn.Linear(160, 64, bias=False)
+        self.point_cls = nn.Linear(64, 1, bias=False)
+        self.point_reg = nn.Linear(64, 3, bias=False)
 
     def _make_layer(self, conv2d, bachnorm2d, inplanes, planes, num_blocks, stride=1):
         block = Sequential(
@@ -104,18 +107,32 @@ class SpMiddleFHD(nn.Module):
 
         coors = coors.int()
         x = spconv.SparseConvTensor(voxel_features, coors, self.sparse_shape, batch_size)
-        x, point_misc = self.backbone(x, points_mean, is_test)
+        x, middle = self.backbone(x)
 
         x = x.dense()
         N, C, D, H, W = x.shape
         x = x.view(N, C * D, H, W)
 
-        x = self.fcn(x)
+        x, conv6 = self.fcn(x)
 
         if is_test:
-            return x
+            return x, conv6
+        else:
+            # auxiliary network
+            vx_feat, vx_nxyz = tensor2points(middle[0], (0, -40., -3.), voxel_size=(.1, .1, .2))
+            p0 = nearest_neighbor_interpolate(points_mean, vx_nxyz, vx_feat)
 
-        return x, point_misc
+            vx_feat, vx_nxyz = tensor2points(middle[1], (0, -40., -3.), voxel_size=(.2, .2, .4))
+            p1 = nearest_neighbor_interpolate(points_mean, vx_nxyz, vx_feat)
+
+            vx_feat, vx_nxyz = tensor2points(middle[2], (0, -40., -3.), voxel_size=(.4, .4, .8))
+            p2 = nearest_neighbor_interpolate(points_mean, vx_nxyz, vx_feat)
+
+            pointwise = self.point_fc(torch.cat([p0, p1, p2], dim=-1))
+            point_cls = self.point_cls(pointwise)
+            point_reg = self.point_reg(pointwise)
+
+            return x, conv6, (points_mean, point_cls, point_reg)
 
 
 def single_conv(in_channels, out_channels, indice_key=None):
@@ -150,7 +167,7 @@ def triple_conv(in_channels, out_channels, indice_key=None):
 
 def stride_conv(in_channels, out_channels, indice_key=None):
     return spconv.SparseSequential(
-            spconv.SparseConv3d(in_channels, out_channels, 3, 2, padding=1, bias=False, indice_key=indice_key),
+            spconv.SparseConv3d(in_channels, out_channels, 3, (2, 2, 2), padding=1, bias=False, indice_key=indice_key),
             nn.BatchNorm1d(out_channels, eps=1e-3, momentum=0.01),
             nn.ReLU()
     )
@@ -178,14 +195,14 @@ class VxNet(nn.Module):
         super(VxNet, self).__init__()
 
         self.conv0 = double_conv(num_input_features, 16, 'subm0')
+
         self.down0 = stride_conv(16, 32, 'down0')
-
         self.conv1 = double_conv(32, 32, 'subm1')
+
         self.down1 = stride_conv(32, 64, 'down1')
-
         self.conv2 = triple_conv(64, 64, 'subm2')
-        self.down2 = stride_conv(64, 64, 'down2')
 
+        self.down2 = stride_conv(64, 64, 'down2')
         self.conv3 = triple_conv(64, 64, 'subm3')  # middle line
 
         self.extra_conv = spconv.SparseSequential(
@@ -193,44 +210,25 @@ class VxNet(nn.Module):
             nn.BatchNorm1d(64, eps=1e-3, momentum=0.01),
             nn.ReLU()
         )
-        self.point_fc = nn.Linear(160, 64, bias=False)
-        self.point_cls = nn.Linear(64, 1, bias=False)
-        self.point_reg = nn.Linear(64, 3, bias=False)
 
-
-    def forward(self, x, points_mean, is_test=False):
+    def forward(self, x):
+        middle = list()
 
         x = self.conv0(x)
         x = self.down0(x)  # sp
         x = self.conv1(x)  # 2x sub
-
-        if not is_test:
-            vx_feat, vx_nxyz = tensor2points(x, voxel_size=(.1, .1, .2))
-            p1 = nearest_neighbor_interpolate(points_mean, vx_nxyz, vx_feat)
+        middle.append(x)
 
         x = self.down1(x)
         x = self.conv2(x)
-
-        if not is_test:
-            vx_feat, vx_nxyz = tensor2points(x, voxel_size=(.2, .2, .4))
-            p2 = nearest_neighbor_interpolate(points_mean, vx_nxyz, vx_feat)
+        middle.append(x)
 
         x = self.down2(x)
         x = self.conv3(x)
-
-        if not is_test:
-            vx_feat, vx_nxyz = tensor2points(x, voxel_size=(.4, .4, .8))
-            p3 = nearest_neighbor_interpolate(points_mean, vx_nxyz, vx_feat)
+        middle.append(x)
 
         out = self.extra_conv(x)
-
-        if is_test:
-            return out, None
-
-        pointwise = self.point_fc(torch.cat([p1, p2, p3], dim=-1))
-        point_cls = self.point_cls(pointwise)
-        point_reg = self.point_reg(pointwise)
-        return out, (points_mean, point_cls, point_reg)
+        return out, middle
 
 class BEVNet(nn.Module):
     def __init__(self, in_features, num_filters=256):
@@ -282,5 +280,6 @@ class BEVNet(nn.Module):
         x = self.conv7(x)
         x = F.relu(self.bn7(x), inplace=True)
         return x, conv6
+
 
 

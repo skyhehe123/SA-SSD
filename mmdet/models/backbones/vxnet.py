@@ -108,7 +108,7 @@ class SimpleVoxel(nn.Module):
         self.num_input_features = num_input_features
 
     def forward(self, features, num_voxels):
-        return features
+        #return features
         # features: [concated_num_points, num_voxel_size, 3(4)]
         # num_voxels: [concated_num_points]
         points_mean = features[:, :, :self.num_input_features].sum(
