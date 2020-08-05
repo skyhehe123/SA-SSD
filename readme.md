@@ -6,7 +6,41 @@ Currently 1st place in KITTI BEV and 3rd in KITTI 3D. The detector can run at 25
 ## Updates
 2020-04-13: Add one_cycle (with Adam) training as default scheduler.
 
-2020-08-04: Multi-class training is supported !
+2020-08-04: Multi-class training is supported. (The multi-class traning is not well tuned and will slightly deteriote the performance of model with single class training (i.e. each class has a individual model), please find the bellow AP for your reference.)
+```
+Car AP@0.70, 0.70, 0.70:
+bbox AP:98.96, 90.06, 89.52
+bev  AP:90.59, 88.43, 87.49
+3d   AP:89.69, 79.41, 78.33
+aos  AP:98.94, 89.89, 89.19
+Car AP@0.70, 0.50, 0.50:
+bbox AP:98.96, 90.06, 89.52
+bev  AP:98.99, 90.13, 89.68
+3d   AP:98.97, 90.10, 89.63
+aos  AP:98.94, 89.89, 89.19
+
+Pedestrian AP@0.50, 0.50, 0.50:
+bbox AP:62.88, 60.26, 53.58
+bev  AP:58.52, 50.29, 44.10
+3d   AP:55.75, 48.01, 41.94
+aos  AP:58.57, 55.19, 49.07
+Pedestrian AP@0.50, 0.25, 0.25:
+bbox AP:62.88, 60.26, 53.58
+bev  AP:71.34, 62.80, 55.64
+3d   AP:71.33, 62.76, 55.60
+aos  AP:58.57, 55.19, 49.07
+
+Cyclist AP@0.50, 0.50, 0.50:
+bbox AP:87.25, 73.74, 67.84
+bev  AP:85.40, 70.48, 64.59
+3d   AP:82.80, 63.37, 61.60
+aos  AP:86.93, 73.26, 67.41
+Cyclist AP@0.50, 0.25, 0.25:
+bbox AP:87.25, 73.74, 67.84
+bev  AP:86.78, 71.55, 65.85
+3d   AP:86.78, 71.54, 65.85
+aos  AP:86.93, 73.26, 67.41
+```
 
 ## Demo
 [![Demo](https://github.com/skyhehe123/SA-SSD/blob/master/doc/hqdefault.jpg)](https://www.youtube.com/watch?v=jrAb3ts4tAs)
