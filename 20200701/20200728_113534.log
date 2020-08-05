@@ -1,7 +1,0 @@
-Distributed training: False
-Set random seed to 0
-**********************Start training**********************
-epoch[1][20/1856]: lr: 0.000300, aux_loss_cls: 0.177734, aux_loss_reg: 0.762514, rpn_loc_loss: 4.979520, rpn_cls_loss: 30.986994, rpn_dir_loss: 0.151855, loss_cls: 39.900912, loss: 76.959527
-epoch[1][40/1856]: lr: 0.000300, aux_loss_cls: 0.102631, aux_loss_reg: 0.666854, rpn_loc_loss: 1.913992, rpn_cls_loss: 1.022713, rpn_dir_loss: 0.141797, loss_cls: 7.361498, loss: 11.209486
-epoch[1][60/1856]: lr: 0.000300, aux_loss_cls: 0.077456, aux_loss_reg: 0.565513, rpn_loc_loss: 1.681246, rpn_cls_loss: 0.712121, rpn_dir_loss: 0.138693, loss_cls: 1.681732, loss: 4.856761
-epoch[1][80/1856]: lr: 0.000300, aux_loss_cls: 0.075425, aux_loss_reg: 0.540911, rpn_loc_loss: 1.616878, rpn_cls_loss: 0.662828, rpn_dir_loss: 0.139688, loss_cls: 1.314289, loss: 4.350018
