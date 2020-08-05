@@ -6,7 +6,7 @@ Currently 1st place in KITTI BEV and 3rd in KITTI 3D. The detector can run at 25
 ## Updates
 2020-04-13: Add one_cycle (with Adam) training as default scheduler.
 
-2020-08-04: Multi-class training is supported. (The multi-class traning is not well tuned and will slightly deteriote the performance of model with single class training (i.e. each class has a individual model), please find the bellow AP for your reference.)
+2020-08-04: Multi-class training is supported. (The multi-class traning is not well tuned and will slightly deteriote the performance of model with single class training (i.e. each class has a individual model), please find the bellow AP@(11 recall points) for your reference.)
 ```
 Car AP@0.70, 0.70, 0.70:
 bbox AP:98.96, 90.06, 89.52
