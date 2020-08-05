@@ -5,6 +5,7 @@ Currently 1st place in KITTI BEV and 3rd in KITTI 3D. The detector can run at 25
 
 ## Updates
 2020-04-13: Add one_cycle (with Adam) training as default scheduler.
+2020-08-04: Multi-class training is supported !
 
 ## Demo
 [![Demo](https://github.com/skyhehe123/SA-SSD/blob/master/doc/hqdefault.jpg)](https://www.youtube.com/watch?v=jrAb3ts4tAs)
